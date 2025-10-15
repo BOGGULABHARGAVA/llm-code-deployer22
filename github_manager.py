@@ -188,46 +188,48 @@ class GitHubManager:
                 raise
     
     def _enable_pages(self, repo):
-        """Enable GitHub Pages on gh-pages branch"""
-        try:
-            # Use PyGithub's Pages API
-            repo.create_pages_site(
-                source={"branch": "gh-pages", "path": "/"}
-            )
-            print("GitHub Pages enabled")
-        except GithubException as e:
-            if e.status == 409:
-                # Pages already enabled
-                print("GitHub Pages already enabled")
-            else:
-                print(f"Warning: Could not enable Pages via API: {e}")
-                # Try with REST API directly
-                self._enable_pages_rest(repo)
+        """Enable GitHub Pages using REST API directly"""
+        import httpx
+        import time
+        
+        url = f"https://api.github.com/repos/{self.username}/{repo.name}/pages"
+        headers = {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
+        
+        # First, check if Pages is already enabled
+        check_response = httpx.get(url, headers=headers)
+        
+        if check_response.status_code == 200:
+            print(f"GitHub Pages already enabled for {repo.name}")
+            return
+        
+        # Enable Pages with gh-pages branch
+        data = {
+            "source": {
+                "branch": "gh-pages",
+                "path": "/"
+            }
+        }
+        
+        # Wait a bit for branch to be available
+        time.sleep(2)
+        
+        response = httpx.post(url, headers=headers, json=data)
+        
+        if response.status_code in [201, 200]:
+            print(f"GitHub Pages enabled successfully for {repo.name}")
+            time.sleep(3)  # Wait for Pages to build
+        elif response.status_code == 409:
+            # Pages already enabled
+            print(f"GitHub Pages already enabled for {repo.name}")
+        else:
+            print(f"Warning: Could not enable Pages (status {response.status_code}). May need manual activation.")
+            print(f"Response: {response.text}")
     
-    def _enable_pages_rest(self, repo):
-        """Enable Pages using REST API directly"""
-        try:
-            url = f"https://api.github.com/repos/{self.username}/{repo.name}/pages"
-            headers = {
-                "Authorization": f"token {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            }
-            data = {
-                "source": {
-                    "branch": "gh-pages",
-                    "path": "/"
-                }
-            }
-            
-            response = httpx.post(url, headers=headers, json=data, timeout=10)
-            
-            if response.status_code in [201, 409]:
-                print("GitHub Pages enabled via REST API")
-            else:
-                print(f"Pages REST API response: {response.status_code}")
-        except Exception as e:
-            print(f"Pages REST API error: {e}")
+        
     
     async def wait_for_pages_live(self, pages_url: str, max_attempts: int = 30) -> bool:
         """
