@@ -111,7 +111,8 @@ async def process_deployment(request_data: Dict):
         github_mgr = GitHubManager()
         
         # Detect task type from brief
-        task_type = app_gen.detect_task_type(request_data['brief'])
+        task_type = app_gen._detect_task_type(request_data['brief'])
+
         print(f"Detected task type: {task_type}")
         
         # Generate app files based on task type
