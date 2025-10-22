@@ -31,26 +31,18 @@ class GitHubManager:
             # Delete existing repo if present
             self._delete_repo_if_exists(repo_name)
             
-            # Create new public repo
+            # Create new public repo with auto_init
             repo = self.user.create_repo(
                 repo_name,
                 description=f"Auto-generated app for {task_name}",
                 private=False,
-                auto_init=True
+                auto_init=True  # This creates README and main branch
             )
             
             print(f"Repository created: {repo.html_url}")
-            time.sleep(2)  # Brief pause for GitHub to process
+            time.sleep(3)  # Wait for GitHub to initialize
             
-            # Create initial commit on main branch
-            repo.create_file(
-                "README.md",
-                "Initial commit",
-                files.get("README.md", "# Auto-generated Application"),
-                branch="main"
-            )
-            
-            # Get main branch SHA
+            # Get main branch SHA (exists because of auto_init=True)
             main_ref = repo.get_git_ref("heads/main")
             main_sha = main_ref.object.sha
             
@@ -118,12 +110,11 @@ class GitHubManager:
     
     def _sanitize_repo_name(self, task_name: str) -> str:
         """Convert task name to valid repo name"""
-        # Remove special characters and replace spaces/underscores with hyphens
         import re
         name = re.sub(r'[^a-zA-Z0-9\s_-]', '', task_name)
         name = re.sub(r'[\s_]+', '-', name)
         name = name.lower().strip('-')
-        return name[:100]  # GitHub repo name max length
+        return name[:100]
     
     def _delete_repo_if_exists(self, repo_name: str):
         """Delete repo if it already exists"""
@@ -131,27 +122,28 @@ class GitHubManager:
             existing_repo = self.user.get_repo(repo_name)
             existing_repo.delete()
             print(f"Deleted existing repo: {repo_name}")
-            time.sleep(3)  # Wait for deletion to complete
+            time.sleep(3)
         except GithubException:
-            pass  # Repo doesn't exist, no action needed
+            pass
     
     def _upload_files(self, repo, files: Dict[str, str], branch: str, is_update: bool = False):
         """Upload multiple files to a specific branch"""
         for filepath, content in files.items():
             try:
-                if is_update:
-                    # Try to update existing file
-                    try:
-                        file_content = repo.get_contents(filepath, ref=branch)
-                        repo.update_file(
-                            filepath,
-                            f"Update {filepath}",
-                            content,
-                            file_content.sha,
-                            branch=branch
-                        )
-                        print(f"Updated: {filepath}")
-                    except GithubException:
+                # Try to get existing file first
+                try:
+                    existing_file = repo.get_contents(filepath, ref=branch)
+                    # File exists, update it
+                    repo.update_file(
+                        filepath,
+                        f"Update {filepath}",
+                        content,
+                        existing_file.sha,
+                        branch=branch
+                    )
+                    print(f"Updated: {filepath}")
+                except GithubException as e:
+                    if e.status == 404:
                         # File doesn't exist, create it
                         repo.create_file(
                             filepath,
@@ -160,28 +152,8 @@ class GitHubManager:
                             branch=branch
                         )
                         print(f"Created: {filepath}")
-                else:
-                    # For initial upload
-                    if filepath == "README.md":
-                        # README already exists, update it
-                        readme = repo.get_contents("README.md", ref=branch)
-                        repo.update_file(
-                            readme.path,
-                            f"Update {filepath}",
-                            content,
-                            readme.sha,
-                            branch=branch
-                        )
-                        print(f"Updated: {filepath}")
                     else:
-                        # Create new file
-                        repo.create_file(
-                            filepath,
-                            f"Add {filepath}",
-                            content,
-                            branch=branch
-                        )
-                        print(f"Created: {filepath}")
+                        raise
                 
             except Exception as e:
                 print(f"Error handling {filepath}: {str(e)}")
@@ -189,9 +161,6 @@ class GitHubManager:
     
     def _enable_pages(self, repo):
         """Enable GitHub Pages using REST API directly"""
-        import httpx
-        import time
-        
         url = f"https://api.github.com/repos/{self.username}/{repo.name}/pages"
         headers = {
             "Authorization": f"token {self.token}",
@@ -199,7 +168,7 @@ class GitHubManager:
             "X-GitHub-Api-Version": "2022-11-28"
         }
         
-        # First, check if Pages is already enabled
+        # Check if Pages is already enabled
         check_response = httpx.get(url, headers=headers)
         
         if check_response.status_code == 200:
@@ -214,42 +183,14 @@ class GitHubManager:
             }
         }
         
-        # Wait a bit for branch to be available
         time.sleep(2)
         
         response = httpx.post(url, headers=headers, json=data)
         
         if response.status_code in [201, 200]:
             print(f"GitHub Pages enabled successfully for {repo.name}")
-            time.sleep(3)  # Wait for Pages to build
+            time.sleep(3)
         elif response.status_code == 409:
-            # Pages already enabled
             print(f"GitHub Pages already enabled for {repo.name}")
         else:
-            print(f"Warning: Could not enable Pages (status {response.status_code}). May need manual activation.")
-            print(f"Response: {response.text}")
-    
-        
-    
-    async def wait_for_pages_live(self, pages_url: str, max_attempts: int = 30) -> bool:
-        """
-        Wait for GitHub Pages to become accessible (optional check)
-        Returns True if pages are live, False if timeout
-        """
-        print(f"Waiting for Pages to go live: {pages_url}")
-        
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            for attempt in range(max_attempts):
-                try:
-                    response = await client.get(pages_url, timeout=10)
-                    if response.status_code == 200:
-                        print(f"✓ Pages are live!")
-                        return True
-                except Exception:
-                    pass
-                
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(4)
-        
-        print("Pages may still be deploying (this is normal)")
-        return False
+            print(f"Warning: Could not enable Pages (status {response.status_code})")
