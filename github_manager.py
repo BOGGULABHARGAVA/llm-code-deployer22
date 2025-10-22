@@ -36,7 +36,7 @@ class GitHubManager:
                 repo_name,
                 description=f"Auto-generated app for {task_name}",
                 private=False,
-                auto_init=False
+                auto_init=True
             )
             
             print(f"Repository created: {repo.html_url}")
