@@ -112,46 +112,15 @@ async def process_deployment(request_data: Dict):
         
         # Detect task type from brief
         task_type = app_gen._detect_task_type(request_data['brief'])
-
         print(f"Detected task type: {task_type}")
         
-        # Generate app files based on task type
-        files = None
-        if task_type == "captcha-solver":
-            files = app_gen.generate_captcha_solver(
-                request_data['brief'],
-                request_data['checks'],
-                request_data['attachments']
-            )
-        elif task_type == "sum-of-sales":
-            files = app_gen.generate_sum_of_sales(
-                request_data['brief'],
-                request_data['checks'],
-                request_data['attachments'],
-                request_data['round']
-            )
-        elif task_type == "markdown-to-html":
-            files = app_gen.generate_markdown_to_html(
-                request_data['brief'],
-                request_data['checks'],
-                request_data['attachments'],
-                request_data['round']
-            )
-        elif task_type == "github-user-created":
-            files = app_gen.generate_github_user_created(
-                request_data['brief'],
-                request_data['checks'],
-                request_data['attachments'],
-                request_data['round']
-            )
-        else:
-            # Fallback to generic app
-            print(f"Using generic template for unknown task type")
-            files = {
-                "index.html": "<html><body><h1>Generic Application</h1></body></html>",
-                "LICENSE": app_gen._get_mit_license(),
-                "README.md": app_gen._generate_readme("Application", request_data['brief'], request_data['checks'])
-            }
+        # Generate all files using AppGenerator
+        files = app_gen.generate(
+            task_name=request_data['task'],
+            brief=request_data['brief'],
+            checks=request_data.get('checks', []),
+            attachments=request_data.get('attachments', [])
+        )
         
         if not files:
             raise ValueError("No files generated")
