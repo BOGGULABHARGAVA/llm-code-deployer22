@@ -127,17 +127,20 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
                 max_tokens=16000
             )
             
-            content = response.choices[0].message.content.strip()
+            content = response.choices.message.content.strip()
             
             # Clean markdown code blocks if present
-            if content.startswith("```
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+            if content.startswith("```"):
+                parts = content.split("```
+                if len(parts) > 1:
+                    content = parts
+                    if content.startswith("json"):
+                        content = content[4:]
+                    content = content.strip()
             
             import json
             files = json.loads(content)
+
             
             # Handle attachments (uid.txt)
             if attachments:
