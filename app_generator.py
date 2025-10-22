@@ -1,4 +1,7 @@
 import os
+import json
+import re
+import base64
 from openai import OpenAI
 
 class AppGenerator:
@@ -112,7 +115,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Use GPT-4 for complex tasks
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -123,31 +126,28 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
                         "content": prompt
                     }
                 ],
-                temperature=0.3,  # Lower temperature for more consistent output
+                temperature=0.3,
                 max_tokens=16000
             )
             
-            content = response.choices.message.content.strip()
+            content = response.choices[0].message.content.strip()
             
             # Clean markdown code blocks if present
-            if content.startswith("```"):
-                parts = content.split("```
+            TRIPLE_BACKTICK = chr(96) * 3
+            if content.startswith(TRIPLE_BACKTICK):
+                parts = content.split(TRIPLE_BACKTICK)
                 if len(parts) > 1:
-                    content = parts
+                    content = parts[1]
                     if content.startswith("json"):
                         content = content[4:]
                     content = content.strip()
             
-            import json
             files = json.loads(content)
-
             
             # Handle attachments (uid.txt)
             if attachments:
                 for attachment in attachments:
                     if attachment.get('name') == 'uid.txt':
-                        # Decode base64 attachment
-                        import base64
                         data_url = attachment.get('url', '')
                         if 'base64,' in data_url:
                             base64_data = data_url.split('base64,')[1]
@@ -159,14 +159,12 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
             
         except Exception as e:
             print(f"Error generating SEC app: {e}")
-            # Fallback to basic template
             return self._generate_basic_sec_template(task_name, brief, attachments)
     
     def _generate_basic_sec_template(self, task_name: str, brief: str, attachments: list) -> dict:
         """Fallback basic SEC template if LLM fails"""
         
         # Extract CIK from brief
-        import re
         cik_match = re.search(r'CIK(\d+)', brief)
         cik = cik_match.group(1) if cik_match else "0000018230"
         
@@ -188,7 +186,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
@@ -245,9 +243,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
             color: white;
             font-weight: 600;
         }}
-        tr:hover {{
-            background: #f5f5f5;
-        }}
+        tr:hover {{ background: #f5f5f5; }}
         .stats {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -307,67 +303,33 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
 
         async function fetchData(cik = null) {{
             try {{
-                const url = cik 
-                    ? API_URL.replace(/CIK\\d+/, `CIK${{cik}}`)
-                    : API_URL;
-                
+                const url = cik ? API_URL.replace(/CIK\\d+/, 'CIK' + cik) : API_URL;
                 const response = await fetch(url, {{
                     headers: {{
-                        'User-Agent': 'Educational Project contact@example.com',
+                        'User-Agent': 'Educational Project',
                         'Accept': 'application/json'
                     }}
                 }});
-
-                if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
-                
-                const data = await response.json();
-                return data;
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return await response.json();
             }} catch (error) {{
-                console.error('Fetch error:', error);
                 throw error;
             }}
         }}
 
         function displayData(data) {{
-            // Extract units data
             const units = data.units?.shares || data.units?.USD || Object.values(data.units || {{}})[0] || [];
-            
-            if (!units || units.length === 0) {{
-                throw new Error('No data available');
-            }}
+            if (!units || units.length === 0) throw new Error('No data available');
 
-            // Sort by filing date
             units.sort((a, b) => new Date(b.filed) - new Date(a.filed));
 
-            // Update stats
             const latest = units[0];
-            const oldest = units[units.length - 1];
             const avgValue = units.reduce((sum, item) => sum + (item.val || 0), 0) / units.length;
 
-            document.getElementById('stats').innerHTML = `
-                <div class="stat-card">
-                    <div class="stat-label">Latest Value</div>
-                    <div class="stat-value">${{(latest.val || 0).toLocaleString()}}</div>
-                    <div class="stat-label">${{latest.filed}}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Average</div>
-                    <div class="stat-value">${{avgValue.toLocaleString('en-US', {{maximumFractionDigits: 0}})}}</div>
-                    <div class="stat-label">Across all filings</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Filings</div>
-                    <div class="stat-value">${{units.length}}</div>
-                    <div class="stat-label">SEC reports</div>
-                </div>
-            `;
+            document.getElementById('stats').innerHTML = '<div class="stat-card"><div class="stat-label">Latest Value</div><div class="stat-value">' + (latest.val || 0).toLocaleString() + '</div><div class="stat-label">' + latest.filed + '</div></div><div class="stat-card"><div class="stat-label">Average</div><div class="stat-value">' + avgValue.toLocaleString('en-US', {{maximumFractionDigits: 0}}) + '</div><div class="stat-label">Across all filings</div></div><div class="stat-card"><div class="stat-label">Total Filings</div><div class="stat-value">' + units.length + '</div><div class="stat-label">SEC reports</div></div>';
 
-            // Create chart
             const ctx = document.getElementById('dataChart').getContext('2d');
-            
-            if (chartInstance) {{
-                chartInstance.destroy();
-            }}
+            if (chartInstance) chartInstance.destroy();
 
             chartInstance = new Chart(ctx, {{
                 type: 'line',
@@ -387,69 +349,37 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {{
-                        legend: {{
-                            display: true,
-                            position: 'top'
-                        }},
-                        title: {{
-                            display: true,
-                            text: data.label || 'Data Over Time'
-                        }}
+                        legend: {{ display: true, position: 'top' }},
+                        title: {{ display: true, text: data.label || 'Data Over Time' }}
                     }},
-                    scales: {{
-                        y: {{
-                            beginAtZero: false
-                        }}
-                    }}
+                    scales: {{ y: {{ beginAtZero: false }} }}
                 }}
             }});
 
-            // Populate table
-            const tbody = document.getElementById('tableBody');
-            tbody.innerHTML = units.slice(0, 50).map(item => `
-                <tr>
-                    <td>${{item.filed}}</td>
-                    <td>${{item.end || 'N/A'}}</td>
-                    <td>${{(item.val || 0).toLocaleString()}}</td>
-                    <td>${{item.form}}</td>
-                </tr>
-            `).join('');
+            document.getElementById('tableBody').innerHTML = units.slice(0, 50).map(item => '<tr><td>' + item.filed + '</td><td>' + (item.end || 'N/A') + '</td><td>' + (item.val || 0).toLocaleString() + '</td><td>' + item.form + '</td></tr>').join('');
 
-            // Save to data.json
-            localStorage.setItem('secData', JSON.stringify(data));
-
-            // Update company info if available
-            if (data.entityName) {{
-                document.getElementById('company-name').textContent = data.entityName;
-            }}
-            if (data.cik) {{
-                document.getElementById('cik-display').textContent = data.cik;
-            }}
+            if (data.entityName) document.getElementById('company-name').textContent = data.entityName;
+            if (data.cik) document.getElementById('cik-display').textContent = data.cik;
         }}
 
         async function init() {{
             try {{
-                // Check for CIK query parameter
                 const urlParams = new URLSearchParams(window.location.search);
                 const cikParam = urlParams.get('CIK');
-
                 document.getElementById('loading').style.display = 'block';
                 document.getElementById('error').style.display = 'none';
                 document.getElementById('content').style.display = 'none';
-
                 const data = await fetchData(cikParam);
                 displayData(data);
-
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
             }} catch (error) {{
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
-                document.getElementById('error').textContent = `Error loading data: ${{error.message}}. The SEC API may have rate limits or CORS restrictions.`;
+                document.getElementById('error').textContent = 'Error loading data: ' + error.message;
             }}
         }}
 
-        // Initialize on page load
         init();
     </script>
 </body>
@@ -497,9 +427,8 @@ SEC Data Visualization for {company}
 - Real-time SEC data visualization
 - Interactive Chart.js charts
 - Responsive data tables
-- Support for ?CIK= query parameter to view different companies
+- Support for ?CIK= query parameter
 - Modern, mobile-responsive design
-- Error handling and loading states
 
 ## Usage
 1. Open `index.html` in a web browser
@@ -509,23 +438,15 @@ SEC Data Visualization for {company}
 Example: `index.html?CIK=0000789019` (for Microsoft)
 
 ## Data Source
-Data is fetched from the SEC EDGAR XBRL API:
 {api_url}
 
 ## License
-MIT License - see LICENSE file for details
+MIT License
 
 ## Technical Stack
-- HTML5
-- CSS3 (Responsive Design)
-- JavaScript (ES6+)
+- HTML5, CSS3, JavaScript (ES6+)
 - Chart.js for visualizations
-- SEC EDGAR API for data
-
-## Notes
-- The SEC API may have rate limits
-- CORS restrictions may prevent direct API calls from file:// protocol
-- For best results, serve via HTTP server or GitHub Pages"""
+- SEC EDGAR API for data"""
 
         files = {
             "index.html": html,
@@ -534,11 +455,9 @@ MIT License - see LICENSE file for details
             "README.md": readme
         }
 
-        # Handle uid.txt attachment
         if attachments:
             for attachment in attachments:
                 if attachment.get('name') == 'uid.txt':
-                    import base64
                     data_url = attachment.get('url', '')
                     if 'base64,' in data_url:
                         base64_data = data_url.split('base64,')[1]
@@ -585,21 +504,21 @@ Make it production-ready with no placeholders."""
             
             content = response.choices[0].message.content.strip()
             
-            if content.startswith("```
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+            TRIPLE_BACKTICK = chr(96) * 3
+            if content.startswith(TRIPLE_BACKTICK):
+                parts = content.split(TRIPLE_BACKTICK)
+                if len(parts) > 1:
+                    content = parts[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                    content = content.strip()
             
-            import json
             files = json.loads(content)
             
-            # Add attachments
             if attachments:
                 for attachment in attachments:
                     name = attachment.get('name', '')
                     if name:
-                        import base64
                         data_url = attachment.get('url', '')
                         if 'base64,' in data_url:
                             base64_data = data_url.split('base64,')[1]
@@ -656,7 +575,6 @@ Make it production-ready with no placeholders."""
 </html>"""
 
         license_text = "MIT License\n\nCopyright (c) 2025\n\nPermission is hereby granted..."
-        
         readme = f"""# {task_name}\n\n{brief}\n\n## License\nMIT"""
         
         files = {
@@ -669,7 +587,6 @@ Make it production-ready with no placeholders."""
             for attachment in attachments:
                 name = attachment.get('name', '')
                 if name:
-                    import base64
                     data_url = attachment.get('url', '')
                     if 'base64,' in data_url:
                         base64_data = data_url.split('base64,')[1]
